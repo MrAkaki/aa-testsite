@@ -1,0 +1,10 @@
+# Local environment & secrets — copy .env.example to .env (NEVER commit .env)
+.env
+
+# Build / run artifacts
+build.log
+*.log
+
+# Python bytecode
+__pycache__/
+*.py[cod]

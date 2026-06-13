@@ -1,0 +1,61 @@
+# Bare-minimum Alliance Auth test stack (Podman) with allianceauth-discordbot.
+#
+# Services: redis (Celery broker + Django cache — required for Celery),
+#           gunicorn (web, serves static via WhiteNoise — no nginx),
+#           one celery worker WITH embedded beat (-B),
+#           the discord bot (run_authbot; start only after real creds).
+# Database: SQLite, stored on the 'sqlite-data' volume. No MariaDB/Grafana/Proxy.
+
+x-allianceauth-base: &allianceauth-base
+  build:
+    context: .
+    dockerfile: custom.dockerfile
+    args:
+      AA_DOCKER_TAG: ${AA_DOCKER_TAG?err}
+  restart: always
+  env_file:
+    - ./.env
+  volumes:
+    - ./conf/local.py:/home/allianceauth/myauth/myauth/settings/local.py
+    - ./conf/celery.py:/home/allianceauth/myauth/myauth/celery.py
+    - ./conf/urls.py:/home/allianceauth/myauth/myauth/urls.py
+    - sqlite-data:/home/allianceauth/myauth/data
+    - static-data:/var/www/myauth/static
+  depends_on:
+    - redis
+  working_dir: /home/allianceauth/myauth/
+
+services:
+  redis:
+    image: redis:8
+    restart: always
+    volumes:
+      - redis-data:/data
+
+  allianceauth_gunicorn:
+    container_name: allianceauth_gunicorn
+    <<: [*allianceauth-base]
+    entrypoint: ["gunicorn", "myauth.wsgi", "--bind=0.0.0.0:8000", "--workers=3", "--timeout=120"]
+    # Host port 80 -> container 8000, so the site is plain http://localhost
+    ports:
+      - "80:8000"
+
+  allianceauth_worker:
+    container_name: allianceauth_worker
+    <<: [*allianceauth-base]
+    # Single worker handles every queue and runs the beat scheduler embedded (-B).
+    entrypoint: ["celery", "-A", "myauth", "worker", "--pool=threads", "--concurrency=4", "-B", "-Q", "celery,services,aadiscordbot", "-n", "worker_%n"]
+
+  # allianceauth-discordbot live gateway (run_authbot). Needs a real DISCORD_BOT_TOKEN
+  # in conf/local.py; it will crash-loop on an empty token, so keep it stopped until
+  # you add credentials, then: podman compose up -d allianceauth_discordbot
+  allianceauth_discordbot:
+    container_name: allianceauth_discordbot
+    <<: [*allianceauth-base]
+    restart: on-failure
+    entrypoint: ["python", "-u", "/home/allianceauth/myauth/manage.py", "run_authbot"]
+
+volumes:
+  redis-data:
+  sqlite-data:
+  static-data:

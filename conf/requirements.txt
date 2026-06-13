@@ -1,0 +1,3 @@
+allianceauth-discordbot
+whitenoise
+aa-skip-email
