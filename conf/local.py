@@ -10,18 +10,19 @@ SITE_URL = (
 )
 CSRF_TRUSTED_ORIGINS = [SITE_URL]
 DEBUG = os.environ.get("AA_DEBUG", False)
-# Bare-minimum test box: SQLite instead of MariaDB. The DB file lives on the
-# 'sqlite-data' volume (dir created + owned by the allianceauth user in custom.dockerfile).
-# WAL journaling + a write timeout keep concurrent gunicorn/worker/beat access from locking.
+# MariaDB (the 'mariadb' compose service). Switched off SQLite because some plugins
+# run heavy queries/joins that SQLite handles poorly under concurrent worker access.
+# Credentials come from .env; mysqlclient ships in the base AA image already.
 DATABASES["default"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": "/home/allianceauth/myauth/data/db.sqlite3",
-    "OPTIONS": {
-        "timeout": 20,
-        "init_command": "PRAGMA journal_mode=WAL;",
-    },
+    "ENGINE": "django.db.backends.mysql",
+    "NAME": os.environ.get("AA_DB_NAME", "alliance_auth"),
+    "USER": os.environ.get("AA_DB_USER", "allianceauth"),
+    "PASSWORD": os.environ.get("AA_DB_PASSWORD", "allianceauth"),
+    "HOST": os.environ.get("AA_DB_HOST", "mariadb"),
+    "PORT": os.environ.get("AA_DB_PORT", "3306"),
+    "OPTIONS": {"charset": "utf8mb4"},
 }
-
+EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 # Register an application at https://developers.eveonline.com for Authentication
 # & API Access and fill out these settings. Be sure to set the callback URL
 # to https://example.com/sso/callback substituting your domain for example.com

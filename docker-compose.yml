@@ -8,8 +8,10 @@
 
 x-allianceauth-base: &allianceauth-base
   build:
-    context: .
-    dockerfile: custom.dockerfile
+    # Context is the parent dir so the image can include the sibling aa-whatax
+    # source (a local plugin under test). A .dockerignore in ../ keeps it lean.
+    context: ..
+    dockerfile: aa-testsite/custom.dockerfile
     args:
       AA_DOCKER_TAG: ${AA_DOCKER_TAG?err}
   restart: always
@@ -22,7 +24,10 @@ x-allianceauth-base: &allianceauth-base
     - sqlite-data:/home/allianceauth/myauth/data
     - static-data:/var/www/myauth/static
   depends_on:
-    - redis
+    redis:
+      condition: service_started
+    mariadb:
+      condition: service_healthy
   working_dir: /home/allianceauth/myauth/
 
 services:
@@ -31,6 +36,29 @@ services:
     restart: always
     volumes:
       - redis-data:/data
+
+  # MariaDB — proper DB engine for plugins that run heavy queries (SQLite chokes
+  # on concurrency/large joins). Credentials come from .env; data lives on the
+  # 'mariadb-data' volume. The healthcheck gates the AA services (depends_on:
+  # service_healthy) so they don't start booting before the DB accepts connections.
+  mariadb:
+    image: mariadb:11.4
+    restart: always
+    # Dev-only hardcoded credentials (must match the defaults in conf/local.py).
+    environment:
+      MARIADB_DATABASE: alliance_auth
+      MARIADB_USER: allianceauth
+      MARIADB_PASSWORD: allianceauth
+      MARIADB_ROOT_PASSWORD: allianceauth-root
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   allianceauth_gunicorn:
     container_name: allianceauth_gunicorn
@@ -58,4 +86,5 @@ services:
 volumes:
   redis-data:
   sqlite-data:
+  mariadb-data:
   static-data:
